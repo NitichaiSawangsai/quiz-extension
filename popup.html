@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8" />
-  <title>Quiz Auto Answer</title>
+  <title>Auto Search</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -127,7 +127,7 @@
   </style>
 </head>
 <body>
-  <h2>⚙ Quiz Auto Answer</h2>
+  <h2>⚙ Auto Search</h2>
 
   <label for="apiKey">OpenAI API Key</label>
 
@@ -145,8 +145,8 @@
   <label for="model">Model</label>
   <select id="model">
     <optgroup label="── OpenAI GPT-4o series ──">
-      <option value="gpt-4o-mini">gpt-4o-mini ⭐ (ถูก + เร็ว แนะนำ)</option>
-      <option value="gpt-4o">gpt-4o (แม่นยำสูง)</option>
+      <option value="gpt-4o">gpt-4o ⭐ (แม่นยำสูง แนะนำ)</option>
+      <option value="gpt-4o-mini">gpt-4o-mini (ถูกกว่า แต่แม่นน้อยกว่า)</option>
       <option value="gpt-4o-2024-11-20">gpt-4o-2024-11-20 (stable)</option>
       <option value="gpt-4o-mini-2024-07-18">gpt-4o-mini-2024-07-18 (stable)</option>
     </optgroup>
@@ -164,7 +164,7 @@
       <option value="gpt-3.5-turbo">gpt-3.5-turbo (ถูกที่สุด)</option>
     </optgroup>
   </select>
-  <p class="model-note">⭐ gpt-4o-mini แนะนำ — ถูกกว่า gpt-4o ~30x แม่นพอสำหรับข้อสอบวิชาการ</p>
+  <p class="model-note">⭐ gpt-4o แนะนำ — แม่นยำสูงสุดสำหรับข้อสอบวิชาการไทย</p>
 
   <button id="save">บันทึก</button>
   <button class="secondary" id="edit-key" style="display:none">✏️ แก้ไข API Key</button>
@@ -175,9 +175,9 @@
 
   <p class="hint">
     <strong>วิธีใช้:</strong><br />
-    Double-click บนข้อความโจทย์ → AI เลือกคำตอบให้อัตโนมัติ<br /><br />
-    <strong>สัญลักษณ์จุดที่มุมขวาบน:</strong><br />
-    🟡 กำลังถาม AI &nbsp;|&nbsp; 🟢 เลือกแล้ว &nbsp;|&nbsp; 🔴 Error
+    Double-click บนข้อความ<br /><br />
+    <!-- <strong>สัญลักษณ์จุดที่มุมขวาบน:</strong><br />
+    🟡 กำลังถาม AI &nbsp;|&nbsp; 🟢 เลือกแล้ว &nbsp;|&nbsp; 🔴 Error -->
   </p>
 
   <script src="popup.js"></script>

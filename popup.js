@@ -17,6 +17,8 @@ const statusEl     = document.getElementById('status');
 chrome.storage.local.get(['apiKey', 'model'], (data) => {
   if (data.model) {
     modelSelect.value = data.model;
+  } else {
+    modelSelect.value = 'gpt-4o'; // default ใหม่
   }
   if (data.apiKey) {
     showSavedState(data.apiKey);
