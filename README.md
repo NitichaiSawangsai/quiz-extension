@@ -15,7 +15,7 @@
 ### ขั้นที่ 2 — โหลด Extension
 
 1. คลิกปุ่ม **"Load unpacked"**
-2. เลือกโฟลเดอร์ `project-01` (โฟลเดอร์นี้)
+2. เลือกโฟลเดอร์ (โฟลเดอร์นี้ root)
 3. Extension **Quiz Auto Answer** จะปรากฏในรายการ
 
 ### ขั้นที่ 3 — ปักหมุด Extension บน Toolbar
