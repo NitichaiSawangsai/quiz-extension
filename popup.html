@@ -216,7 +216,7 @@
     <span class="toggle-label" style="display:flex;align-items:center">
       <span class="status-dot off" id="ext-dot"></span>
       <span id="ext-label">ปิดอยู่</span>
-      <small style="display:block;margin-top:2px;margin-left:14px">กด Z เปิด / A ปิด</small>
+      <!-- <small style="display:block;margin-top:2px;margin-left:14px">กด Z เปิด / A ปิด</small> -->
     </span>
     <label class="switch">
       <input type="checkbox" id="extEnabled" />
@@ -239,23 +239,29 @@
 
   <label for="model">Model</label>
   <select id="model">
-    <optgroup label="── OpenAI GPT-4o series ──">
+    <optgroup label="── ผู้เชี่ยวชาญกฎ ──">
+    <!-- <optgroup label="── ⚖️ ผู้เชี่ยวชาญกฎหมายไทย ──"> -->
+      <option value="law:gpt-4o">กฎ Expert — gpt-4o ⭐ (แม่นยำสูง แนะนำ)</option>
+      <option value="law:o4-mini">กฎ Expert — o4-mini (เร็ว ถูกกว่า)</option>
+      <option value="law:gpt-4o-mini">กฎ Expert — gpt-4o-mini (ประหยัด)</option>
+    </optgroup>
+    <optgroup label="── GPT-4o series ──">
       <option value="gpt-4o">gpt-4o ⭐ (แม่นยำสูง แนะนำ)</option>
       <option value="gpt-4o-mini">gpt-4o-mini (ถูกกว่า แต่แม่นน้อยกว่า)</option>
       <option value="gpt-4o-2024-11-20">gpt-4o-2024-11-20 (stable)</option>
       <option value="gpt-4o-mini-2024-07-18">gpt-4o-mini-2024-07-18 (stable)</option>
     </optgroup>
-    <optgroup label="── OpenAI o-series (Reasoning) ──">
+    <optgroup label="── o-series (Reasoning) ──">
       <option value="o4-mini">o4-mini (reasoning ถูก)</option>
       <option value="o3-mini">o3-mini (reasoning)</option>
       <option value="o1-mini">o1-mini</option>
       <option value="o1">o1 (reasoning แพง)</option>
     </optgroup>
-    <optgroup label="── OpenAI GPT-4 Classic ──">
+    <optgroup label="── GPT-4 Classic ──">
       <option value="gpt-4-turbo">gpt-4-turbo</option>
       <option value="gpt-4">gpt-4</option>
     </optgroup>
-    <optgroup label="── OpenAI GPT-3.5 ──">
+    <optgroup label="── GPT-3.5 ──">
       <option value="gpt-3.5-turbo">gpt-3.5-turbo (ถูกที่สุด)</option>
     </optgroup>
   </select>
@@ -279,12 +285,12 @@
 
   <hr class="divider" />
 
-  <p class="hint">
+  <!-- <p class="hint">
     <strong>วิธีใช้:</strong><br />
     Double-click บนข้อความ<br /><br />
-    <!-- <strong>สัญลักษณ์จุดที่มุมขวาบน:</strong><br />
-    🟡 กำลังถาม AI &nbsp;|&nbsp; 🟢 เลือกแล้ว &nbsp;|&nbsp; 🔴 Error -->
-  </p>
+    <strong>สัญลักษณ์จุดที่มุมขวาบน:</strong><br />
+    🟡 กำลังถาม AI &nbsp;|&nbsp; 🟢 Done &nbsp;|&nbsp; 🔴 Error
+  </p> -->
 
   <script src="popup.js"></script>
 </body>

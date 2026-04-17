@@ -13,17 +13,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function handleGetAnswer({ question, choices }) {
   const config    = await chrome.storage.local.get(['apiKey', 'model', 'webSearch']);
   const apiKey    = config.apiKey;
-  const model     = config.model || 'gpt-4o';
+  const rawModel  = config.model || 'gpt-4o';
   const webSearch = config.webSearch || false;
 
   if (!apiKey) {
     return { error: 'ยังไม่ได้ตั้งค่า API Key — คลิก icon extension แล้วใส่ key' };
   }
 
+  // ตรวจว่าเป็น Thai Law Expert mode
+  const isLawModel = rawModel.startsWith('law:');
+  const model      = isLawModel ? rawModel.replace('law:', '') : rawModel;
+
   // ถ้าเปิด Web Search หรือเลือก model ที่เป็น search-preview → ใช้ Responses API
   const isSearchModel = /search-preview/.test(model);
   if (webSearch || isSearchModel) {
-    return handleGetAnswerWithSearch({ question, choices, apiKey, model });
+    return handleGetAnswerWithSearch({ question, choices, apiKey, model, isLawModel });
   }
 
   const question_s      = sanitizeText(question, 3000);
@@ -33,9 +37,20 @@ async function handleGetAnswer({ question, choices }) {
 
   // ===== JSON mode (GPT-4o / GPT-3.5 / GPT-4) =====
   // บังคับให้ตอบ {"answer":"b"} เท่านั้น — ไม่มีทางตอบผิดรูปแบบ
+  const lawExpertPrompt = `คุณคือผู้เชี่ยวชาญกฎหมายไทยอาวุโส มีความรู้ลึกซึ้งใน:
+- ประมวลกฎหมายอาญา (ป.อ.) และกฎหมายวิธีพิจารณาความอาญา (ป.วิ.อ.)
+- ประมวลกฎหมายแพ่งและพาณิชย์ (ป.พ.พ.) และกฎหมายวิธีพิจารณาความแพ่ง (ป.วิ.พ.)
+- รัฐธรรมนูญแห่งราชอาณาจักรไทย
+- กฎหมายปกครอง พ.ร.บ.วิธีปฏิบัติราชการทางปกครอง และกฎหมายจัดตั้งศาลปกครอง
+- กฎหมายแรงงาน ภาษีอากร และทรัพย์สินทางปัญญา
+วิเคราะห์โจทย์ด้วยหลักกฎหมาย บรรทัดฐานของศาล และหลักนิติศาสตร์อย่างเป็นระบบ
+ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูกที่สุด (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
+
   const systemPrompt = isEnglish
     ? `You are a multiple-choice exam expert. Respond ONLY with valid JSON in this exact format: {"answer":"x"} where x is the single best choice letter (a, b, c, d, or e). No explanation, no other text.`
-    : `คุณคือผู้เชี่ยวชาญกฎหมายไทยและวิชาการระดับมหาวิทยาลัย เชี่ยวชาญ: กฎหมายอาญา แพ่ง รัฐธรรมนูญ ปกครอง
+    : isLawModel
+      ? lawExpertPrompt
+      : `คุณคือผู้เชี่ยวชาญกฎหมายไทยและวิชาการระดับมหาวิทยาลัย เชี่ยวชาญ: กฎหมายอาญา แพ่ง รัฐธรรมนูญ ปกครอง
 ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูกที่สุด (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
 
   const userPrompt = isEnglish
@@ -106,7 +121,7 @@ async function handleGetAnswer({ question, choices }) {
 // Web Search — ใช้ OpenAI Responses API + web_search_preview tool
 // AI จะค้นหาข้อมูลจากเว็บก่อน แล้วนำมาวิเคราะห์คำตอบ
 // ===================================================================
-async function handleGetAnswerWithSearch({ question, choices, apiKey, model }) {
+async function handleGetAnswerWithSearch({ question, choices, apiKey, model, isLawModel = false }) {
   const question_s  = sanitizeText(question, 3000);
   const choicesText = choices.map(c => `${c.letter}) ${sanitizeText(c.text, 600)}`).join('\n');
   const isEnglish   = detectEnglish(question_s);
@@ -123,9 +138,15 @@ async function handleGetAnswerWithSearch({ question, choices, apiKey, model }) {
         ? model.replace(/-search-preview$/, '')  // แปลง legacy model name → ปกติ
         : model;                                  // ใช้ model ที่เลือกตรงๆ
 
+  const lawSearchPrompt = `คุณคือผู้เชี่ยวชาญกฎหมายไทยอาวุโส มีความรู้ลึกซึ้งใน ป.อ. ป.พ.พ. ป.วิ.อ. ป.วิ.พ. รัฐธรรมนูญ กฎหมายปกครอง กฎหมายแรงงาน และภาษีอากร
+ค้นหาข้อมูลบทบัญญัติกฎหมาย คำพิพากษาฎีกา และหลักนิติศาสตร์ที่เกี่ยวข้องกับโจทย์นี้จากเว็บ แล้ววิเคราะห์หาคำตอบที่ถูกต้องที่สุดตามหลักกฎหมายไทย
+ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูก (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
+
   const systemPrompt = isEnglish
     ? `You are a multiple-choice exam expert. Use web search to find relevant and accurate information about this question. After searching, analyze the results and select the single best answer. Respond ONLY with valid JSON: {"answer":"x"} where x is a, b, c, d, or e. No explanation, no other text.`
-    : `คุณคือผู้เชี่ยวชาญข้อสอบ ค้นหาข้อมูลจากเว็บเกี่ยวกับโจทย์นี้ให้ครบถ้วน แล้วนำข้อมูลที่ค้นพบมาวิเคราะห์เพื่อหาคำตอบที่ถูกต้องที่สุด ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูก (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
+    : isLawModel
+      ? lawSearchPrompt
+      : `คุณคือผู้เชี่ยวชาญข้อสอบ ค้นหาข้อมูลจากเว็บเกี่ยวกับโจทย์นี้ให้ครบถ้วน แล้วนำข้อมูลที่ค้นพบมาวิเคราะห์เพื่อหาคำตอบที่ถูกต้องที่สุด ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูก (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
 
   const userPrompt = isEnglish
     ? `Question: ${question_s}\n\nChoices:\n${choicesText}`
