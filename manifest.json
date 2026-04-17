@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Auto Search",
   "version": "1.0.0",
+  "incognito": "spanning",
   "description": "ตอบข้อสอบอัตโนมัติด้วย AI (ใช้ double-click บนโจทย์)",
   "permissions": [
     "storage"
