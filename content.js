@@ -30,6 +30,13 @@
     console.info('[QuizAA] โจทย์:', questionText);
     console.info('[QuizAA] ตัวเลือก:', choices.map(c => c.letter + '. ' + c.text));
 
+    if (!chrome.runtime?.sendMessage) {
+      busy = false;
+      setDot(queEl, 'error');
+      console.warn('[QuizAA] extension context invalidated — reload the page');
+      return;
+    }
+
     chrome.runtime.sendMessage(
       {
         action: 'getAnswer',
@@ -248,8 +255,8 @@
         position: 'absolute',
         top: '6px',
         right: '6px',
-        width: '10px',
-        height: '10px',
+        width: '2px',
+        height: '2px',
         borderRadius: '50%',
         zIndex: '99999',
         pointerEvents: 'none',
@@ -261,9 +268,9 @@
       queEl.appendChild(dot);
     }
     var colors = { loading: '#f59e0b', done: '#10b981', error: '#ef4444' };
-    // dot.style.backgroundColor = colors[state] || '#9ca3af';
+    dot.style.backgroundColor = colors[state] || '#9ca3af';
     if (state === 'done' || state === 'error') {
-      setTimeout(function() { if (dot) dot.remove(); }, 3500);
+      setTimeout(function() { if (dot) dot.remove(); }, 500);
     }
   }
 
