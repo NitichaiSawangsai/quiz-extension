@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Quiz Auto Answer",
+  "version": "1.0.0",
+  "description": "ตอบข้อสอบอัตโนมัติด้วย AI (ใช้ double-click บนโจทย์)",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*",
+    "https://api.openai.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Quiz Auto Answer - Settings"
+  }
+}

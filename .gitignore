@@ -1,0 +1,13 @@
+# API Keys — ห้าม commit เด็ดขาด
+key ai
+key*
+*.key
+*.secret
+.env
+.env.*
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/

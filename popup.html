@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>Quiz Auto Answer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      width: 300px;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 18px;
+    }
+
+    h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: #94a3b8;
+      margin-bottom: 5px;
+    }
+
+    input[type="password"],
+    input[type="text"],
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #e2e8f0;
+      font-size: 13px;
+      margin-bottom: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus { border-color: #6366f1; }
+
+    .model-note {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: -10px;
+      margin-bottom: 14px;
+    }
+
+    button {
+      width: 100%;
+      padding: 9px;
+      border-radius: 6px;
+      border: none;
+      background: #6366f1;
+      color: white;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover { background: #4f46e5; }
+    button.secondary {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      margin-top: 6px;
+    }
+    button.secondary:hover { background: #334155; }
+    button.danger {
+      background: transparent;
+      border: 1px solid #ef4444;
+      color: #ef4444;
+      margin-top: 6px;
+    }
+    button.danger:hover { background: #ef444422; }
+
+    /* สถานะ Key บันทึกแล้ว */
+    #saved-state {
+      display: none;
+      background: #0d2818;
+      border: 1px solid #166534;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+    }
+    #saved-state .saved-label {
+      font-size: 11px;
+      color: #4ade80;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    #saved-state .saved-preview {
+      font-size: 12px;
+      color: #86efac;
+      font-family: monospace;
+      letter-spacing: 0.05em;
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 12px;
+      text-align: center;
+      min-height: 18px;
+    }
+    .ok { color: #10b981; }
+    .err { color: #ef4444; }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #1e293b;
+      margin: 14px 0;
+    }
+
+    .hint {
+      font-size: 11px;
+      color: #475569;
+      line-height: 1.6;
+    }
+    .hint strong { color: #64748b; }
+  </style>
+</head>
+<body>
+  <h2>⚙ Quiz Auto Answer</h2>
+
+  <label for="apiKey">OpenAI API Key</label>
+
+  <!-- สถานะ: บันทึกแล้ว -->
+  <div id="saved-state">
+    <div class="saved-label">✓ บันทึก API Key แล้ว</div>
+    <div class="saved-preview" id="key-preview"></div>
+  </div>
+
+  <!-- สถานะ: กำลังแก้ไข -->
+  <div id="edit-state">
+    <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
+  </div>
+
+  <label for="model">Model</label>
+  <select id="model">
+    <optgroup label="── OpenAI GPT-4o series ──">
+      <option value="gpt-4o-mini">gpt-4o-mini ⭐ (ถูก + เร็ว แนะนำ)</option>
+      <option value="gpt-4o">gpt-4o (แม่นยำสูง)</option>
+      <option value="gpt-4o-2024-11-20">gpt-4o-2024-11-20 (stable)</option>
+      <option value="gpt-4o-mini-2024-07-18">gpt-4o-mini-2024-07-18 (stable)</option>
+    </optgroup>
+    <optgroup label="── OpenAI o-series (Reasoning) ──">
+      <option value="o4-mini">o4-mini (reasoning ถูก)</option>
+      <option value="o3-mini">o3-mini (reasoning)</option>
+      <option value="o1-mini">o1-mini</option>
+      <option value="o1">o1 (reasoning แพง)</option>
+    </optgroup>
+    <optgroup label="── OpenAI GPT-4 Classic ──">
+      <option value="gpt-4-turbo">gpt-4-turbo</option>
+      <option value="gpt-4">gpt-4</option>
+    </optgroup>
+    <optgroup label="── OpenAI GPT-3.5 ──">
+      <option value="gpt-3.5-turbo">gpt-3.5-turbo (ถูกที่สุด)</option>
+    </optgroup>
+  </select>
+  <p class="model-note">⭐ gpt-4o-mini แนะนำ — ถูกกว่า gpt-4o ~30x แม่นพอสำหรับข้อสอบวิชาการ</p>
+
+  <button id="save">บันทึก</button>
+  <button class="secondary" id="edit-key" style="display:none">✏️ แก้ไข API Key</button>
+  <button class="danger" id="clear-key" style="display:none">🗑 ลบ Key ออก</button>
+  <div id="status"></div>
+
+  <hr class="divider" />
+
+  <p class="hint">
+    <strong>วิธีใช้:</strong><br />
+    Double-click บนข้อความโจทย์ → AI เลือกคำตอบให้อัตโนมัติ<br /><br />
+    <strong>สัญลักษณ์จุดที่มุมขวาบน:</strong><br />
+    🟡 กำลังถาม AI &nbsp;|&nbsp; 🟢 เลือกแล้ว &nbsp;|&nbsp; 🔴 Error
+  </p>
+
+  <script src="popup.js"></script>
+</body>
+</html>
