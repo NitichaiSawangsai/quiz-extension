@@ -3,6 +3,11 @@
 
 const apiKeyInput  = document.getElementById('apiKey');
 const modelSelect  = document.getElementById('model');
+const webSearchEl  = document.getElementById('webSearch');
+const searchBadge  = document.getElementById('search-badge');
+const extEnabledEl = document.getElementById('extEnabled');
+const extDot       = document.getElementById('ext-dot');
+const extLabel     = document.getElementById('ext-label');
 const saveBtn      = document.getElementById('save');
 const editKeyBtn   = document.getElementById('edit-key');
 const clearKeyBtn  = document.getElementById('clear-key');
@@ -14,12 +19,22 @@ const statusEl     = document.getElementById('status');
 // ===================================================================
 // โหลดค่าที่บันทึกไว้ตอนเปิด popup
 // ===================================================================
-chrome.storage.local.get(['apiKey', 'model'], (data) => {
+chrome.storage.local.get(['apiKey', 'model', 'webSearch', 'extEnabled'], (data) => {
   if (data.model) {
     modelSelect.value = data.model;
   } else {
     modelSelect.value = 'gpt-4o'; // default ใหม่
   }
+  // โหลด webSearch toggle
+  const ws = data.webSearch || false;
+  webSearchEl.checked = ws;
+  updateSearchBadge(ws);
+
+  // โหลด enabled state (เปิดเป็น default)
+  const en = data.extEnabled !== false;
+  extEnabledEl.checked = en;
+  updateExtBadge(en);
+
   if (data.apiKey) {
     showSavedState(data.apiKey);
   } else {
@@ -77,6 +92,47 @@ modelSelect.addEventListener('change', () => {
     showStatus('บันทึก model แล้ว ✓', 'ok');
   });
 });
+
+// ===================================================================
+// Enable/Disable Extension toggle
+// ===================================================================
+extEnabledEl.addEventListener('change', () => {
+  const en = extEnabledEl.checked;
+  chrome.storage.local.set({ extEnabled: en }, () => {
+    updateExtBadge(en);
+    showStatus(en ? 'เปิดใช้งาน ✓' : 'ปิดใช้งาน', en ? 'ok' : 'err');
+  });
+});
+
+function updateExtBadge(enabled) {
+  if (enabled) {
+    extDot.className   = 'status-dot on';
+    extLabel.textContent = 'เปิดอยู่';
+  } else {
+    extDot.className   = 'status-dot off';
+    extLabel.textContent = 'ปิดอยู่';
+  }
+}
+
+// ===================================================================
+// Web Search toggle → บันทึกทันที
+// ===================================================================
+webSearchEl.addEventListener('change', () => {
+  const enabled = webSearchEl.checked;
+  chrome.storage.local.set({ webSearch: enabled }, () => {
+    updateSearchBadge(enabled);
+    showStatus(enabled ? 'เปิด Web Search ✓' : 'ปิด Web Search', 'ok');
+  });
+});
+
+function updateSearchBadge(enabled) {
+  if (!searchBadge) return; // null-safe
+  if (enabled) {
+    searchBadge.classList.add('visible');
+  } else {
+    searchBadge.classList.remove('visible');
+  }
+}
 
 // ===================================================================
 // Helpers

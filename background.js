@@ -11,16 +11,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function handleGetAnswer({ question, choices }) {
-  const config = await chrome.storage.local.get(['apiKey', 'model']);
-  const apiKey = config.apiKey;
-  const model  = config.model || 'gpt-4o';
+  const config    = await chrome.storage.local.get(['apiKey', 'model', 'webSearch']);
+  const apiKey    = config.apiKey;
+  const model     = config.model || 'gpt-4o';
+  const webSearch = config.webSearch || false;
 
   if (!apiKey) {
     return { error: 'ยังไม่ได้ตั้งค่า API Key — คลิก icon extension แล้วใส่ key' };
   }
 
-  const choicesText = choices.map(c => `${c.letter}) ${c.text}`).join('\n');
-  const isEnglish       = detectEnglish(question);
+  // ถ้าเปิด Web Search หรือเลือก model ที่เป็น search-preview → ใช้ Responses API
+  const isSearchModel = /search-preview/.test(model);
+  if (webSearch || isSearchModel) {
+    return handleGetAnswerWithSearch({ question, choices, apiKey, model });
+  }
+
+  const question_s      = sanitizeText(question, 3000);
+  const choicesText     = choices.map(c => `${c.letter}) ${sanitizeText(c.text, 600)}`).join('\n');
+  const isEnglish       = detectEnglish(question_s);
   const isReasoningModel = /^o[0-9]/.test(model);
 
   // ===== JSON mode (GPT-4o / GPT-3.5 / GPT-4) =====
@@ -31,8 +39,8 @@ async function handleGetAnswer({ question, choices }) {
 ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูกที่สุด (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
 
   const userPrompt = isEnglish
-    ? `Question: ${question}\n\nChoices:\n${choicesText}`
-    : `โจทย์: ${question}\n\nตัวเลือก:\n${choicesText}`;
+    ? `Question: ${question_s}\n\nChoices:\n${choicesText}`
+    : `โจทย์: ${question_s}\n\nตัวเลือก:\n${choicesText}`;
 
   const body = {
     model,
@@ -41,9 +49,9 @@ async function handleGetAnswer({ question, choices }) {
       { role: 'user',   content: userPrompt }
     ],
     ...(isReasoningModel
-      ? { max_completion_tokens: 50 }
+      ? { max_completion_tokens: 100 }
       : {
-          max_tokens: 20,
+          max_tokens: 50,
           temperature: 0,
           response_format: { type: 'json_object' }  // บังคับ JSON — ไม่มีทางตอบผิดรูปแบบ
         }
@@ -94,6 +102,87 @@ async function handleGetAnswer({ question, choices }) {
   throw new Error(`วิเคราะห์คำตอบไม่ได้: "${raw.slice(0, 60)}"`);
 }
 
+// ===================================================================
+// Web Search — ใช้ OpenAI Responses API + web_search_preview tool
+// AI จะค้นหาข้อมูลจากเว็บก่อน แล้วนำมาวิเคราะห์คำตอบ
+// ===================================================================
+async function handleGetAnswerWithSearch({ question, choices, apiKey, model }) {
+  const question_s  = sanitizeText(question, 3000);
+  const choicesText = choices.map(c => `${c.letter}) ${sanitizeText(c.text, 600)}`).join('\n');
+  const isEnglish   = detectEnglish(question_s);
+
+  // Responses API รองรับ web_search_preview tool กับ model ปกติ
+  // ไม่ต้องใช้ชื่อ -search-preview อีกต่อไป (deprecated)
+  const isOSeries   = /^o[0-9]/.test(model);
+  const isMiniBased = /mini/.test(model);
+  const searchModel = isOSeries
+    ? 'gpt-4o'           // o-series ไม่รองรับ web search → fallback gpt-4o
+    : isMiniBased
+      ? 'gpt-4o-mini'
+      : /search-preview/.test(model)
+        ? model.replace(/-search-preview$/, '')  // แปลง legacy model name → ปกติ
+        : model;                                  // ใช้ model ที่เลือกตรงๆ
+
+  const systemPrompt = isEnglish
+    ? `You are a multiple-choice exam expert. Use web search to find relevant and accurate information about this question. After searching, analyze the results and select the single best answer. Respond ONLY with valid JSON: {"answer":"x"} where x is a, b, c, d, or e. No explanation, no other text.`
+    : `คุณคือผู้เชี่ยวชาญข้อสอบ ค้นหาข้อมูลจากเว็บเกี่ยวกับโจทย์นี้ให้ครบถ้วน แล้วนำข้อมูลที่ค้นพบมาวิเคราะห์เพื่อหาคำตอบที่ถูกต้องที่สุด ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูก (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
+
+  const userPrompt = isEnglish
+    ? `Question: ${question_s}\n\nChoices:\n${choicesText}`
+    : `โจทย์: ${question_s}\n\nตัวเลือก:\n${choicesText}`;
+
+  const body = {
+    model: searchModel,
+    tools: [{ type: 'web_search_preview' }],
+    input: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt }
+    ]
+  };
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(errData.error?.message || `HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  // หา message output จาก Responses API
+  const messageOutput = (data.output || []).find(o => o.type === 'message');
+  const raw = (messageOutput?.content || []).find(c => c.type === 'output_text')?.text?.trim() || '';
+
+  console.log('[QuizAA background] web-search raw:', raw);
+
+  // Parse JSON
+  try {
+    const parsed = JSON.parse(raw);
+    const letter = (parsed.answer || parsed.Answer || parsed.ANSWER || '').toString().trim().toLowerCase();
+    if (/^[a-e]$/.test(letter)) return { answer: letter };
+  } catch (_) { /* fallback ด้านล่าง */ }
+
+  // Regex fallback
+  const answerMatch =
+    raw.match(/["\s:]([a-eA-E])["\s,}]/) ||
+    raw.match(/ANSWER\s*[：:]\s*([a-eA-E])/i) ||
+    raw.match(/ตอบ\s*[：:]\s*([a-eA-E])/i) ||
+    raw.match(/คำตอบ\s*[：:]\s*([a-eA-E])/i) ||
+    raw.match(/^([a-eA-E])$/m) ||
+    raw.match(/^([a-eA-E])\b/m);
+
+  if (answerMatch) return { answer: answerMatch[1].toLowerCase() };
+
+  throw new Error(`วิเคราะห์คำตอบไม่ได้ (web search): "${raw.slice(0, 60)}"`);
+}
+
 // ตรวจจับว่าโจทย์เป็นภาษาอังกฤษหรือไทย
 // นับอักขระ ASCII ตัวอักษร vs ภาษาไทย (Unicode \u0E00-\u0E7F)
 function detectEnglish(text) {
@@ -101,5 +190,16 @@ function detectEnglish(text) {
   const englishChars = (text.match(/[a-zA-Z]/g) || []).length;
   // ถ้ามีตัวไทยน้อยกว่า 10% ของ english chars = ถือว่าเป็น English
   return thaiChars < englishChars * 0.1;
+}
+
+// normalize whitespace + ตัดข้อความที่ยาวเกิน maxChars ออก
+// ป้องกัน token overflow เมื่อโจทย์หรือตัวเลือกมีข้อความยาวมาก
+function sanitizeText(text, maxChars) {
+  const cleaned = text
+    .replace(/[\t ]+/g, ' ')             // collapse spaces/tabs
+    .replace(/(\r?\n|\r){3,}/g, '\n\n')  // max 2 newlines ติดกัน
+    .trim();
+  if (cleaned.length <= maxChars) return cleaned;
+  return cleaned.slice(0, maxChars) + '…';
 }
 
