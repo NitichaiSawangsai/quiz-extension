@@ -94,7 +94,7 @@ async function handleGetAnswer({ question, choices }) {
   const data = await response.json();
   const raw  = (data.choices?.[0]?.message?.content ?? '').trim();
 
-  console.log('[QuizAA background] raw response:', raw);
+  console.log('[info background] raw response:', raw);
 
   // วิธีที่ 1: JSON mode → {"answer":"b"}
   try {
@@ -195,7 +195,7 @@ async function handleGetAnswerWithSearch({ question, choices, apiKey, model, isL
   const messageOutput = (data.output || []).find(o => o.type === 'message');
   const raw = (messageOutput?.content || []).find(c => c.type === 'output_text')?.text?.trim() || '';
 
-  console.log('[QuizAA background] web-search raw:', raw);
+  console.log('[info background] web-search raw:', raw);
 
   // Parse JSON
   try {

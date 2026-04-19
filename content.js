@@ -76,71 +76,220 @@
     }, 1800);
   }
 
-  document.addEventListener('dblclick', function (e) {
+  var longPressTimer = null;
+  var longPressTarget = null;
+  var dotTimer = null;          // delay ก่อนแสดง dot (เพื่อไม่โชว์ตอนลาก)
+  var startX = 0;
+  var startY = 0;
+  var LONG_PRESS_MS = 3000;     // 3 วินาที
+  var DOT_DELAY_MS  = 200;      // รอ 200ms ก่อนแสดง dot (กันกระพริบตอนลาก)
+  var MOVE_THRESHOLD = 6;       // px — ถ้าเลื่อนเกินนี้ถือว่าลาก ยกเลิกทันที
+
+  document.addEventListener('mousedown', function (e) {
     if (!enabled) return;
     if (busy) return;
+    if (e.button !== 0) return; // เฉพาะคลิกซ้าย
 
     // ห้าม trigger ถ้าคลิกบน radio/checkbox/ปุ่มโดยตรง
     if (e.target.matches('input, button, a, select, textarea')) return;
 
     // หา container ข้อสอบ
-    const queEl = findQuestionContainer(e.target);
+    var queEl = findQuestionContainer(e.target);
     if (!queEl) return;
 
+    startX = e.clientX;
+    startY = e.clientY;
+    longPressTarget = { queEl: queEl, targetEl: e.target };
+
+    // แสดง dot หลัง 200ms (ถ้าลากก่อน = ไม่แสดงเลย)
+    dotTimer = setTimeout(function () {
+      dotTimer = null;
+      if (longPressTarget) setDot(longPressTarget.queEl, 'holding');
+    }, DOT_DELAY_MS);
+
+    longPressTimer = setTimeout(function () {
+      longPressTimer = null;
+      if (!longPressTarget) return;
+
+      var questionText = extractQuestionText(longPressTarget.queEl);
+      if (!questionText || questionText.length < 3) {
+        setDot(longPressTarget.queEl, 'error');
+        longPressTarget = null;
+        return;
+      }
+
+      var choices = extractChoices(longPressTarget.queEl);
+      if (choices.length === 0) {
+        setDot(longPressTarget.queEl, 'error');
+        longPressTarget = null;
+        return;
+      }
+
+      busy = true;
+      setDot(longPressTarget.queEl, 'working');
+
+      console.info('[info] โจทย์:', questionText);
+      console.info('[info] ตัวเลือก:', choices.map(function(c){ return c.letter + '. ' + c.text; }));
+
+      var _queEl = longPressTarget.queEl;
+      longPressTarget = null;
+
+      if (!chrome.runtime || !chrome.runtime.sendMessage) {
+        busy = false;
+        setDot(_queEl, 'error');
+        console.warn('[info] extension context invalidated — reload the page');
+        return;
+      }
+
+      chrome.runtime.sendMessage(
+        {
+          action: 'getAnswer',
+          question: questionText,
+          choices: choices.map(function(c){ return { letter: c.letter, text: c.text }; })
+        },
+        function (response) {
+          busy = false;
+          if (chrome.runtime.lastError || !response) {
+            setDot(_queEl, 'error');
+            console.warn('[info] runtime error:', chrome.runtime.lastError && chrome.runtime.lastError.message);
+            return;
+          }
+          if (response.error) {
+            setDot(_queEl, 'error');
+            console.warn('[info] API error:', response.error);
+            return;
+          }
+          if (response.answer) {
+            var idx = response.answer.charCodeAt(0) - 97;
+            if (choices[idx]) {
+              selectChoice(choices[idx]);
+              setDot(_queEl, 'done');
+              console.info('[info] ✓ ตอบ:', response.answer.toUpperCase(), '→', choices[idx].text);
+            } else {
+              setDot(_queEl, 'error');
+              console.warn('[info] ไม่พบ index:', idx, '/ มีทั้งหมด:', choices.length);
+            }
+          }
+        }
+      );
+    }, LONG_PRESS_MS);
+  });
+
+  // ยกเลิกถ้าปล่อยก่อนครบเวลา หรือเลื่อน mouse เกิน threshold
+  function cancelLongPress(force) {
+    if (dotTimer) { clearTimeout(dotTimer); dotTimer = null; }
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+      if (longPressTarget) {
+        var dot = longPressTarget.queEl.querySelector('.__qaa_dot');
+        if (dot) dot.remove();
+        longPressTarget = null;
+      }
+    }
+  }
+
+  document.addEventListener('mouseup', cancelLongPress);
+  document.addEventListener('scroll',  cancelLongPress, true);
+
+  // mousemove: ยกเลิกเฉพาะเมื่อเลื่อนเกิน threshold (กันสั่น)
+  document.addEventListener('mousemove', function (e) {
+    if (!longPressTimer && !dotTimer) return;
+    var dx = e.clientX - startX;
+    var dy = e.clientY - startY;
+    if (Math.sqrt(dx * dx + dy * dy) > MOVE_THRESHOLD) {
+      cancelLongPress();
+    }
+  });
+
+  // บล็อค contextmenu (คลิกขวา) เพื่อไม่ให้เปิด popup ของ browser พร้อมกัน
+  // เฉพาะช่วงที่ long press timer กำลังนับจนครบแล้ว (working state) เท่านั้น
+  document.addEventListener('contextmenu', function (e) {
+    if (busy) {
+      e.preventDefault();
+    }
+  }, true);
+
+  // บล็อค dblclick ทั่วทั้งหน้า → กัน dictionary / Look Up popup
+  document.addEventListener('dblclick', function (e) {
+    if (!(e.target instanceof Element)) return;
+    if (e.target.matches('input, button, a, select, textarea')) return;
     e.preventDefault();
+    e.stopPropagation();
+  }, true);
 
-    const questionText = extractQuestionText(queEl);
+  // บล็อค selectstart ทั่วทั้งหน้า → กัน dictionary extension popup
+  document.addEventListener('selectstart', function (e) {
+    if (!(e.target instanceof Element)) return;
+    if (e.target.matches('input, button, a, select, textarea')) return;
+    e.preventDefault();
+  }, true);
+
+  // MutationObserver — ซ่อน dictionary popup ที่ extension อื่น inject เข้ามาทันที
+  (function () {
+    // CSS inject: ซ่อน popup ที่รู้จักเป็น default ก่อนเลย
+    var style = document.createElement('style');
+    style.textContent = [
+      // Longdo / common Thai dictionary extensions
+      '#ldpopup, #ld-popup, #ldtooltip, #ld_popup',
+      // Translate / lookup popup ทั่วไป
+      '[id*="dict"],[id*="Dict"],[id*="popup"],[id*="Popup"],[id*="tooltip"],[id*="Tooltip"]',
+      '[class*="dict-popup"],[class*="dictPopup"],[class*="dict_popup"]',
+      '[class*="lookup-popup"],[class*="lookupPopup"]',
+      '[class*="translate-popup"],[class*="translatePopup"]',
+      // Chrome extension shadow-host ที่ inject บน body
+      'body > div[style*="z-index: 2147483647"]:not(#__qaa_toast)',
+      'body > div[style*="z-index:2147483647"]:not(#__qaa_toast)',
+    ].join(',') + ' { display: none !important; }';
+    (document.head || document.documentElement).appendChild(style);
+
+    // Observer: popup ที่ inject หลัง page load → ซ่อนทันที
+    var obs = new MutationObserver(function (mutations) {
+      mutations.forEach(function (m) {
+        m.addedNodes.forEach(function (node) {
+          if (node.nodeType !== 1) return;
+          var id  = (node.id || '').toLowerCase();
+          var cls = (node.className || '').toLowerCase();
+          var isDictPopup =
+            /dict|popup|tooltip|lookup|translate/.test(id) ||
+            /dict.?popup|lookup.?popup|translate.?popup/.test(cls);
+          if (isDictPopup && node.id !== '__qaa_toast') {
+            node.style.setProperty('display', 'none', 'important');
+          }
+        });
+      });
+    });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+  })();
+
+  // -- stub เพื่อให้ code ด้านล่างที่ใช้ sendMessage เดิมยังทำงานได้ --
+  // (ย้ายไปอยู่ใน longPress callback แล้ว ข้างล่างนี้จะไม่ถูกเรียก)
+  if (false) { // dead code block — เก็บไว้เพื่อไม่ให้ parser error
+    var e = {};
+    if (!enabled) return;
+    if (busy) return;
+    if (e.target && e.target.matches('input, button, a, select, textarea')) return;
+    var queEl = findQuestionContainer(e.target);
+    if (!queEl) return;
+    e.preventDefault && e.preventDefault();
+    var questionText = extractQuestionText(queEl);
     if (!questionText || questionText.length < 3) return;
-
-    const choices = extractChoices(queEl);
+    var choices = extractChoices(queEl);
     if (choices.length === 0) return;
-
     busy = true;
     setDot(queEl, 'loading');
 
-    console.info('[QuizAA] โจทย์:', questionText);
-    console.info('[QuizAA] ตัวเลือก:', choices.map(c => c.letter + '. ' + c.text));
+    console.info('[info] โจทย์:', questionText);
+    console.info('[info] ตัวเลือก:', choices.map(c => c.letter + '. ' + c.text));
 
     if (!chrome.runtime?.sendMessage) {
       busy = false;
       setDot(queEl, 'error');
-      console.warn('[QuizAA] extension context invalidated — reload the page');
+      console.warn('[info] extension context invalidated — reload the page');
       return;
     }
 
-    chrome.runtime.sendMessage(
-      {
-        action: 'getAnswer',
-        question: questionText,
-        choices: choices.map(c => ({ letter: c.letter, text: c.text }))
-      },
-      function (response) {
-        busy = false;
-
-        if (chrome.runtime.lastError || !response) {
-          setDot(queEl, 'error');
-          console.warn('[QuizAA] runtime error:', chrome.runtime.lastError?.message);
-          return;
-        }
-        if (response.error) {
-          setDot(queEl, 'error');
-          console.warn('[QuizAA] API error:', response.error);
-          return;
-        }
-        if (response.answer) {
-          const idx = response.answer.charCodeAt(0) - 97; // 'a'=0, 'b'=1 ...
-          if (choices[idx]) {
-            selectChoice(choices[idx]);
-            setDot(queEl, 'done');
-            console.info('[QuizAA] ✓ ตอบ:', response.answer.toUpperCase(), '→', choices[idx].text);
-          } else {
-            setDot(queEl, 'error');
-            console.warn('[QuizAA] ไม่พบ index:', idx, '/ มีทั้งหมด:', choices.length);
-          }
-        }
-      }
-    );
-  });
+  } // end dead code block
 
   // ===================================================================
   // หา container ข้อสอบ
@@ -392,7 +541,7 @@
         position: 'absolute',
         top: '6px',
         right: '6px',
-        width: '2px',
+        width: '1px',
         height: '2px',
         borderRadius: '50%',
         zIndex: '99999',
@@ -404,7 +553,7 @@
       }
       queEl.appendChild(dot);
     }
-    var colors = { loading: '#f59e0b', done: '#10b981', error: '#ef4444' };
+    var colors = { holding: '#94a3b8', working: '#09aaf5', done: '#10b981', error: '#ef4444' };
     dot.style.backgroundColor = colors[state] || '#9ca3af';
     if (state === 'done' || state === 'error') {
       setTimeout(function() { if (dot) dot.remove(); }, 500);
