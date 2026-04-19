@@ -24,34 +24,38 @@ async function handleGetAnswer({ question, choices }) {
   const isLawModel = rawModel.startsWith('law:');
   const model      = isLawModel ? rawModel.replace('law:', '') : rawModel;
 
-  // ถ้าเปิด Web Search หรือเลือก model ที่เป็น search-preview → ใช้ Responses API
+  // ถ้าเปิด Web Search หรือเลือก model ที่เป็น search-preview หรือ gpt-5 → ใช้ Responses API
   const isSearchModel = /search-preview/.test(model);
-  if (webSearch || isSearchModel) {
+  const isGPT5       = /^gpt-5/.test(model);
+  if (webSearch || isSearchModel || isGPT5) {
     return handleGetAnswerWithSearch({ question, choices, apiKey, model, isLawModel });
   }
 
-  const question_s      = sanitizeText(question, 3000);
-  const choicesText     = choices.map(c => `${c.letter}) ${sanitizeText(c.text, 600)}`).join('\n');
+  const question_s      = sanitizeText(question, 4000);
+  const choicesText     = choices.map(c => `${c.letter}) ${sanitizeText(c.text, 800)}`).join('\n');
   const isEnglish       = detectEnglish(question_s);
   const isReasoningModel = /^o[0-9]/.test(model);
+  const lastLetter      = choices.length > 0 ? choices[choices.length - 1].letter : 'e';
+  const letterList      = choices.length > 0 ? choices.map(c => c.letter).join(', ') : 'a, b, c, d, e';
 
   // ===== JSON mode (GPT-4o / GPT-3.5 / GPT-4) =====
   // บังคับให้ตอบ {"answer":"b"} เท่านั้น — ไม่มีทางตอบผิดรูปแบบ
-  const lawExpertPrompt = `คุณคือผู้เชี่ยวชาญกฎหมายไทยอาวุโส มีความรู้ลึกซึ้งใน:
+  const lawExpertPrompt = `คุณคือผู้เชี่ยวชาญกฎหมายไทยอาวุโส มีความรู้ลึกซึ้งในกฎหมายไทยทุกสาขา ได้แก่:
 - ประมวลกฎหมายอาญา (ป.อ.) และกฎหมายวิธีพิจารณาความอาญา (ป.วิ.อ.)
 - ประมวลกฎหมายแพ่งและพาณิชย์ (ป.พ.พ.) และกฎหมายวิธีพิจารณาความแพ่ง (ป.วิ.พ.)
-- รัฐธรรมนูญแห่งราชอาณาจักรไทย
+- รัฐธรรมนูญแห่งราชอาณาจักรไทย ทุกฉบับ
 - กฎหมายปกครอง พ.ร.บ.วิธีปฏิบัติราชการทางปกครอง และกฎหมายจัดตั้งศาลปกครอง
-- กฎหมายแรงงาน ภาษีอากร และทรัพย์สินทางปัญญา
+- กฎหมายแรงงาน กฎหมายภาษีอากร ทรัพย์สินทางปัญญา และกฎหมายธุรกิจ
+- คำพิพากษาฎีกาและบรรทัดฐานศาลสูงที่สำคัญ
 วิเคราะห์โจทย์ด้วยหลักกฎหมาย บรรทัดฐานของศาล และหลักนิติศาสตร์อย่างเป็นระบบ
-ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูกที่สุด (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
+โจทย์นี้มีตัวเลือก ${letterList} — ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของตัวเลือกที่ถูกที่สุด ห้ามมีข้อความอื่น`;
 
   const systemPrompt = isEnglish
-    ? `You are a multiple-choice exam expert. Respond ONLY with valid JSON in this exact format: {"answer":"x"} where x is the single best choice letter (a, b, c, d, or e). No explanation, no other text.`
+    ? `You are a multiple-choice exam expert. The choices are ${letterList}. Respond ONLY with valid JSON in this exact format: {"answer":"x"} where x is the single best choice letter. No explanation, no other text.`
     : isLawModel
       ? lawExpertPrompt
       : `คุณคือผู้เชี่ยวชาญกฎหมายไทยและวิชาการระดับมหาวิทยาลัย เชี่ยวชาญ: กฎหมายอาญา แพ่ง รัฐธรรมนูญ ปกครอง
-ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูกที่สุด (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
+โจทย์นี้มีตัวเลือก ${letterList} — ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของตัวเลือกที่ถูกที่สุด ห้ามมีข้อความอื่น`;
 
   const userPrompt = isEnglish
     ? `Question: ${question_s}\n\nChoices:\n${choicesText}`
@@ -66,7 +70,7 @@ async function handleGetAnswer({ question, choices }) {
     ...(isReasoningModel
       ? { max_completion_tokens: 100 }
       : {
-          max_tokens: 50,
+          max_tokens: 20,
           temperature: 0,
           response_format: { type: 'json_object' }  // บังคับ JSON — ไม่มีทางตอบผิดรูปแบบ
         }
@@ -96,19 +100,19 @@ async function handleGetAnswer({ question, choices }) {
   try {
     const parsed = JSON.parse(raw);
     const letter = (parsed.answer || parsed.Answer || parsed.ANSWER || '').toString().trim().toLowerCase();
-    if (/^[a-e]$/.test(letter)) {
+    if (/^[a-z]$/.test(letter)) {
       return { answer: letter };
     }
   } catch (_) { /* ไม่ใช่ JSON ใช้ fallback */ }
 
   // วิธีที่ 2: regex fallback สำหรับ o-series หรือ model ที่ไม่รองรับ json_object
   const answerMatch =
-    raw.match(/["\s:]([a-eA-E])["\s,}]/) ||  // {"answer":"b"} หรือ : b
-    raw.match(/ANSWER\s*[：:]\s*([a-eA-E])/i) ||
-    raw.match(/ตอบ\s*[：:]\s*([a-eA-E])/i) ||
-    raw.match(/คำตอบ\s*[：:]\s*([a-eA-E])/i) ||
-    raw.match(/^([a-eA-E])$/m) ||             // บรรทัดที่มีแค่ตัวอักษรเดียว
-    raw.match(/^([a-eA-E])\b/m);              // ขึ้นต้นบรรทัดด้วยตัวอักษร
+    raw.match(/["\s:]([a-zA-Z])["\s,}]/) ||  // {"answer":"b"} หรือ : b
+    raw.match(/ANSWER\s*[：:]\s*([a-zA-Z])/i) ||
+    raw.match(/ตอบ\s*[：:]\s*([a-zA-Z])/i) ||
+    raw.match(/คำตอบ\s*[：:]\s*([a-zA-Z])/i) ||
+    raw.match(/^([a-zA-Z])$/m) ||             // บรรทัดที่มีแค่ตัวอักษรเดียว
+    raw.match(/^([a-zA-Z])\b/m);              // ขึ้นต้นบรรทัดด้วยตัวอักษร
 
   if (answerMatch) {
     return { answer: answerMatch[1].toLowerCase() };
@@ -122,9 +126,11 @@ async function handleGetAnswer({ question, choices }) {
 // AI จะค้นหาข้อมูลจากเว็บก่อน แล้วนำมาวิเคราะห์คำตอบ
 // ===================================================================
 async function handleGetAnswerWithSearch({ question, choices, apiKey, model, isLawModel = false }) {
-  const question_s  = sanitizeText(question, 3000);
-  const choicesText = choices.map(c => `${c.letter}) ${sanitizeText(c.text, 600)}`).join('\n');
+  const question_s  = sanitizeText(question, 4000);
+  const choicesText = choices.map(c => `${c.letter}) ${sanitizeText(c.text, 800)}`).join('\n');
   const isEnglish   = detectEnglish(question_s);
+  const lastLetter  = choices.length > 0 ? choices[choices.length - 1].letter : 'e';
+  const letterList  = choices.length > 0 ? choices.map(c => c.letter).join(', ') : 'a, b, c, d, e';
 
   // Responses API รองรับ web_search_preview tool กับ model ปกติ
   // ไม่ต้องใช้ชื่อ -search-preview อีกต่อไป (deprecated)
@@ -132,21 +138,29 @@ async function handleGetAnswerWithSearch({ question, choices, apiKey, model, isL
   const isMiniBased = /mini/.test(model);
   const searchModel = isOSeries
     ? 'gpt-4o'           // o-series ไม่รองรับ web search → fallback gpt-4o
-    : isMiniBased
-      ? 'gpt-4o-mini'
-      : /search-preview/.test(model)
-        ? model.replace(/-search-preview$/, '')  // แปลง legacy model name → ปกติ
-        : model;                                  // ใช้ model ที่เลือกตรงๆ
+    : /search-preview/.test(model)
+      ? model.replace(/-search-preview$/, '')  // แปลง legacy model name → ปกติ
+      : model;                                  // gpt-5, gpt-4o, gpt-4o-mini → ใช้ตรงๆ
 
-  const lawSearchPrompt = `คุณคือผู้เชี่ยวชาญกฎหมายไทยอาวุโส มีความรู้ลึกซึ้งใน ป.อ. ป.พ.พ. ป.วิ.อ. ป.วิ.พ. รัฐธรรมนูญ กฎหมายปกครอง กฎหมายแรงงาน และภาษีอากร
-ค้นหาข้อมูลบทบัญญัติกฎหมาย คำพิพากษาฎีกา และหลักนิติศาสตร์ที่เกี่ยวข้องกับโจทย์นี้จากเว็บ แล้ววิเคราะห์หาคำตอบที่ถูกต้องที่สุดตามหลักกฎหมายไทย
-ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูก (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
+  const lawSearchPrompt = `คุณคือผู้เชี่ยวชาญกฎหมายไทยอาวุโสระดับสูงสุด มีความเชี่ยวชาญลึกซึ้งในกฎหมายไทยทุกสาขา:
+- ประมวลกฎหมายอาญา (ป.อ.) และกฎหมายวิธีพิจารณาความอาญา (ป.วิ.อ.) ทุกมาตรา
+- ประมวลกฎหมายแพ่งและพาณิชย์ (ป.พ.พ.) และกฎหมายวิธีพิจารณาความแพ่ง (ป.วิ.พ.) ทุกมาตรา
+- รัฐธรรมนูญแห่งราชอาณาจักรไทย ทุกฉบับ และหลักรัฐธรรมนูญนิยม
+- กฎหมายปกครอง พ.ร.บ.วิธีปฏิบัติราชการทางปกครอง กฎหมายจัดตั้งศาลปกครอง
+- กฎหมายแรงงาน กฎหมายภาษีอากร ทรัพย์สินทางปัญญา กฎหมายธุรกิจ และกฎหมายระหว่างประเทศ
+- คำพิพากษาศาลฎีกา คำวินิจฉัยศาลรัฐธรรมนูญ และคำพิพากษาศาลปกครองสูงสุด
+ขั้นตอน:
+1. ค้นหาข้อมูลจากเว็บ: บทบัญญัติกฎหมาย คำพิพากษาฎีกา ตำราและเอกสารวิชาการ
+2. วิเคราะห์หลักกฎหมายและเปรียบเทียบตัวเลือกทั้งหมดอย่างละเอียด
+3. สรุปตัวเลือกที่ถูกต้องที่สุดตามหลักกฎหมายไทย
+โจทย์นี้มีตัวเลือก ${letterList} — ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของตัวเลือกที่ถูกที่สุด ห้ามมีข้อความอื่น`;
 
   const systemPrompt = isEnglish
-    ? `You are a multiple-choice exam expert. Use web search to find relevant and accurate information about this question. After searching, analyze the results and select the single best answer. Respond ONLY with valid JSON: {"answer":"x"} where x is a, b, c, d, or e. No explanation, no other text.`
+    ? `You are a multiple-choice exam expert. The choices are ${letterList}. Use web search to find relevant and accurate information, then analyze and select the single best answer. Respond ONLY with valid JSON: {"answer":"x"} where x is the correct choice letter. No explanation, no other text.`
     : isLawModel
       ? lawSearchPrompt
-      : `คุณคือผู้เชี่ยวชาญข้อสอบ ค้นหาข้อมูลจากเว็บเกี่ยวกับโจทย์นี้ให้ครบถ้วน แล้วนำข้อมูลที่ค้นพบมาวิเคราะห์เพื่อหาคำตอบที่ถูกต้องที่สุด ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของคำตอบที่ถูก (a, b, c, d หรือ e) ห้ามมีข้อความอื่น`;
+      : `คุณคือผู้เชี่ยวชาญกฎหมายไทยและวิชาการ ค้นหาข้อมูลจากเว็บเกี่ยวกับโจทย์นี้ให้ครบถ้วน แล้ววิเคราะห์เพื่อหาคำตอบที่ถูกต้องที่สุด
+โจทย์นี้มีตัวเลือก ${letterList} — ตอบด้วย JSON รูปแบบนี้เท่านั้น: {"answer":"x"} โดย x คือตัวอักษรของตัวเลือกที่ถูกที่สุด ห้ามมีข้อความอื่น`;
 
   const userPrompt = isEnglish
     ? `Question: ${question_s}\n\nChoices:\n${choicesText}`
@@ -187,17 +201,17 @@ async function handleGetAnswerWithSearch({ question, choices, apiKey, model, isL
   try {
     const parsed = JSON.parse(raw);
     const letter = (parsed.answer || parsed.Answer || parsed.ANSWER || '').toString().trim().toLowerCase();
-    if (/^[a-e]$/.test(letter)) return { answer: letter };
+    if (/^[a-z]$/.test(letter)) return { answer: letter };
   } catch (_) { /* fallback ด้านล่าง */ }
 
   // Regex fallback
   const answerMatch =
-    raw.match(/["\s:]([a-eA-E])["\s,}]/) ||
-    raw.match(/ANSWER\s*[：:]\s*([a-eA-E])/i) ||
-    raw.match(/ตอบ\s*[：:]\s*([a-eA-E])/i) ||
-    raw.match(/คำตอบ\s*[：:]\s*([a-eA-E])/i) ||
-    raw.match(/^([a-eA-E])$/m) ||
-    raw.match(/^([a-eA-E])\b/m);
+    raw.match(/["\s:]([a-zA-Z])["\s,}]/) ||
+    raw.match(/ANSWER\s*[：:]\s*([a-zA-Z])/i) ||
+    raw.match(/ตอบ\s*[：:]\s*([a-zA-Z])/i) ||
+    raw.match(/คำตอบ\s*[：:]\s*([a-zA-Z])/i) ||
+    raw.match(/^([a-zA-Z])$/m) ||
+    raw.match(/^([a-zA-Z])\b/m);
 
   if (answerMatch) return { answer: answerMatch[1].toLowerCase() };
 

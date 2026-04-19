@@ -348,7 +348,7 @@
   function stripChoicePrefix(text) {
     return text
       .replace(/^[0-9]+[.)]\s*/, '')
-      .replace(/^[a-eA-E][.)]\s*/, '')
+      .replace(/^[a-zA-Z][.)]\s*/, '')
       .replace(/^[ก-ฮ][.)]\s*/, '')
       .replace(/^[ivxIVX]+[.)]\s*/i, '')
       .replace(/[\t ]+/g, ' ')               // collapse spaces/tabs
