@@ -118,6 +118,53 @@
         return;
       }
 
+      // ===== ตรวจสอบว่าเป็น Matrix question (หลายข้อย่อย × N ตัวเลือก) =====
+      var matrixResult = detectAndExtractMatrix(longPressTarget.queEl);
+      if (matrixResult && matrixResult.subs.length >= 2) {
+        // console.info('[matrix] detected', matrixResult.subs.length, 'subs, cols:', matrixResult.columnHeaders, '\ninstr:', matrixResult.instruction);
+        busy = true;
+        setDot(longPressTarget.queEl, 'working');
+        var _queEl = longPressTarget.queEl;
+        var _subs  = matrixResult.subs;
+        var _cols  = matrixResult.columnHeaders;
+        var _instr = matrixResult.instruction || questionText;
+        longPressTarget = null;
+        if (!chrome.runtime || !chrome.runtime.sendMessage) {
+          busy = false; setDot(_queEl, 'error'); return;
+        }
+        chrome.runtime.sendMessage(
+          {
+            action: 'getMatrixAnswer',
+            instruction: _instr,
+            columnHeaders: _cols,
+            subQuestions: _subs.map(function(sq) { return { text: sq.text }; })
+          },
+          function (response) {
+            busy = false;
+            // console.info('[matrix] response:', JSON.stringify(response));
+            if (chrome.runtime.lastError || !response || response.error) {
+              // console.warn('[matrix] error:', response && response.error, chrome.runtime.lastError && chrome.runtime.lastError.message);
+              setDot(_queEl, 'error'); return;
+            }
+            if (response.answers && response.answers.length) {
+              response.answers.forEach(function(ans, i) {
+                if (!_subs[i]) return;
+                var radioIdx = parseInt(ans, 10) - 1;
+                if (isNaN(radioIdx) || radioIdx < 0) return;
+                var r = _subs[i].radios[radioIdx];
+                if (r) {
+                  r.checked = true;
+                  r.click();
+                  r.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+              });
+              setDot(_queEl, 'done');
+            }
+          }
+        );
+        return;
+      }
+
       var choices = extractChoices(longPressTarget.queEl);
       if (choices.length === 0) {
         setDot(longPressTarget.queEl, 'error');
@@ -128,8 +175,8 @@
       busy = true;
       setDot(longPressTarget.queEl, 'working');
 
-      console.info('[info] โจทย์:', questionText);
-      console.info('[info] ตัวเลือก:', choices.map(function(c){ return c.letter + '. ' + c.text; }));
+      // console.info('[info] โจทย์:', questionText);
+      // console.info('[info] ตัวเลือก:', choices.map(function(c){ return c.letter + '. ' + c.text; }));
 
       var _queEl = longPressTarget.queEl;
       longPressTarget = null;
@@ -137,7 +184,7 @@
       if (!chrome.runtime || !chrome.runtime.sendMessage) {
         busy = false;
         setDot(_queEl, 'error');
-        console.warn('[info] extension context invalidated — reload the page');
+        // console.warn('[info] extension context invalidated — reload the page');
         return;
       }
 
@@ -151,12 +198,12 @@
           busy = false;
           if (chrome.runtime.lastError || !response) {
             setDot(_queEl, 'error');
-            console.warn('[info] runtime error:', chrome.runtime.lastError && chrome.runtime.lastError.message);
+            // console.warn('[info] runtime error:', chrome.runtime.lastError && chrome.runtime.lastError.message);
             return;
           }
           if (response.error) {
             setDot(_queEl, 'error');
-            console.warn('[info] API error:', response.error);
+            // console.warn('[info] API error:', response.error);
             return;
           }
           if (response.answer) {
@@ -164,10 +211,10 @@
             if (choices[idx]) {
               selectChoice(choices[idx]);
               setDot(_queEl, 'done');
-              console.info('[info] ✓ ตอบ:', response.answer.toUpperCase(), '→', choices[idx].text);
+              // console.info('[info] ✓ ตอบ:', response.answer.toUpperCase(), '→', choices[idx].text);
             } else {
               setDot(_queEl, 'error');
-              console.warn('[info] ไม่พบ index:', idx, '/ มีทั้งหมด:', choices.length);
+              // console.warn('[info] ไม่พบ index:', idx, '/ มีทั้งหมด:', choices.length);
             }
           }
         }
@@ -279,13 +326,13 @@
     busy = true;
     setDot(queEl, 'loading');
 
-    console.info('[info] โจทย์:', questionText);
-    console.info('[info] ตัวเลือก:', choices.map(c => c.letter + '. ' + c.text));
+    // console.info('[info] โจทย์:', questionText);
+    // console.info('[info] ตัวเลือก:', choices.map(c => c.letter + '. ' + c.text));
 
     if (!chrome.runtime?.sendMessage) {
       busy = false;
       setDot(queEl, 'error');
-      console.warn('[info] extension context invalidated — reload the page');
+      // console.warn('[info] extension context invalidated — reload the page');
       return;
     }
 
@@ -529,8 +576,216 @@
   }
 
   // ===================================================================
-  // จุดสถานะ stealth — 🟡 loading | 🟢 done | 🔴 error
+  // Matrix question — ตรวจจับ + ดึงข้อมูล grid quiz
+  // รองรับทั้ง name-grouped และ table-row layout
   // ===================================================================
+  function detectAndExtractMatrix(queEl) {
+    // ===== ขยาย scope ถ้า queEl อยู่ใน <table> =====
+    // findQuestionContainer อาจคืน <tr> ที่มีแค่ 2 radios → ต้องไต่ขึ้นหา table
+    var tableEl = queEl.querySelector('table');
+    var scopeEl = queEl;
+
+    if (!tableEl) {
+      // queEl อาจอยู่ภายใน table (เช่น เป็น tr/td) → หา table ที่ครอบ
+      tableEl = queEl.closest('table');
+      if (tableEl) {
+        // ไต่ขึ้น DOM จาก table เพื่อหา container ที่ครอบทั้ง instruction + table
+        var p = tableEl.parentElement;
+        while (p && p !== document.body) {
+          scopeEl = p;
+          if (p.querySelectorAll('input[type="radio"]').length >= 4) break;
+          p = p.parentElement;
+        }
+        if (scopeEl === queEl) scopeEl = tableEl.parentElement || tableEl;
+        // อัปเดต tableEl ให้ตรงกับ scopeEl
+        tableEl = scopeEl.querySelector('table') || tableEl;
+      }
+    }
+
+    var allRadios = scopeEl.querySelectorAll('input[type="radio"]');
+    // console.info('[matrix-detect] scopeEl radios:', allRadios.length, '| has table:', !!tableEl);
+    if (allRadios.length < 4) return null;
+
+    // ===== Method 1: Group by <tr> (ทนทานกว่า name-based) =====
+    if (tableEl) {
+      var rowGroups = [];
+      tableEl.querySelectorAll('tr').forEach(function(row) {
+        var rowRadios = Array.from(row.querySelectorAll('input[type="radio"]'));
+        if (rowRadios.length >= 2) rowGroups.push(rowRadios);
+      });
+
+      // console.info('[matrix-detect] rowGroups:', rowGroups.length, '| cols:', rowGroups[0] ? rowGroups[0].length : 0);
+
+      if (rowGroups.length >= 2) {
+        var firstCount = rowGroups[0].length;
+        if (firstCount >= 2 && firstCount <= 8) {
+          var allSame = rowGroups.every(function(g) { return g.length === firstCount; });
+          if (allSame) {
+            // ===== column headers =====
+            var columnHeaders = [];
+            var headerRow = null;
+            // ลอง thead ก่อน
+            var theadRow = tableEl.querySelector('thead tr');
+            if (theadRow && theadRow.querySelectorAll('input[type="radio"]').length === 0) {
+              headerRow = theadRow;
+            }
+            // ถ้าไม่มี thead ลอง tr แรกที่ไม่มี radio
+            if (!headerRow) {
+              var trs = tableEl.querySelectorAll('tr');
+              for (var ti = 0; ti < trs.length; ti++) {
+                if (trs[ti].querySelectorAll('input[type="radio"]').length === 0) {
+                  headerRow = trs[ti];
+                  break;
+                }
+              }
+            }
+            if (headerRow) {
+              headerRow.querySelectorAll('th, td').forEach(function(cell) {
+                var t = cell.innerText.trim();
+                if (t) columnHeaders.push(t);
+              });
+              // ถ้า headers มีมากกว่าจำนวน column ตัด header คอลัมน์แรก (หัวโจทย์) ออก
+              if (columnHeaders.length > firstCount) {
+                columnHeaders = columnHeaders.slice(columnHeaders.length - firstCount);
+              }
+              if (columnHeaders.length === 1) columnHeaders = []; // ไม่มีประโยชน์
+            }
+            // fallback: value ของ radio แถวแรก
+            if (columnHeaders.length === 0) {
+              rowGroups[0].forEach(function(r) {
+                var v = r.value || r.getAttribute('data-value') || '';
+                if (v && v !== 'on') columnHeaders.push(v);
+              });
+            }
+
+            // ===== subs =====
+            var subs = rowGroups.map(function(radioGroup, idx) {
+              var text = '';
+              var row = radioGroup[0].closest('tr');
+              if (row) {
+                var cells = row.querySelectorAll('td, th');
+                for (var ci = 0; ci < cells.length; ci++) {
+                  if (cells[ci].querySelectorAll('input[type="radio"]').length === 0) {
+                    var cl = cells[ci].cloneNode(true);
+                    cl.querySelectorAll('input, img, span.__qaa_dot').forEach(function(n){ n.remove(); });
+                    var t = cl.innerText.trim();
+                    if (t.length > 1) { text = t; break; }
+                  }
+                }
+              }
+              if (!text) text = 'ข้อ ' + (idx + 1);
+              return {
+                text: text.replace(/[\t ]+/g, ' ').replace(/(\r?\n|\r){2,}/g, ' ').trim(),
+                radios: radioGroup,
+                name: radioGroup[0].name || ('row_' + idx)
+              };
+            });
+
+            var instruction = extractMatrixInstruction(scopeEl, tableEl);
+            // console.info('[matrix-detect] ✓ table-row | subs:', subs.length, '| cols:', columnHeaders, '| instr:', instruction.slice(0, 60));
+            return { subs: subs, columnHeaders: columnHeaders, instruction: instruction };
+          }
+        }
+      }
+    }
+
+    // ===== Method 2: Group by name attribute (fallback) =====
+    var groups = {};
+    var groupOrder = [];
+    allRadios.forEach(function(r) {
+      var n = r.name || '';
+      if (!n) return;
+      if (!groups[n]) { groups[n] = []; groupOrder.push(n); }
+      groups[n].push(r);
+    });
+
+    // console.info('[matrix-detect] name groups:', groupOrder.length, '| first size:', groupOrder[0] ? groups[groupOrder[0]].length : 0);
+
+    if (groupOrder.length < 2) return null;
+    var firstCount = groups[groupOrder[0]].length;
+    if (firstCount < 2 || firstCount > 6) return null;
+    var allSame = groupOrder.every(function(n) { return groups[n].length === firstCount; });
+    if (!allSame) return null;
+
+    // column headers
+    var columnHeaders = [];
+    var firstRadio = groups[groupOrder[0]][0];
+    var tbl = firstRadio.closest('table');
+    if (tbl) {
+      var headerRows = tbl.querySelectorAll('thead tr, tbody tr:first-child');
+      headerRows.forEach(function(row) {
+        if (columnHeaders.length > 0) return;
+        if (row.querySelector('input[type="radio"]')) return;
+        row.querySelectorAll('th, td').forEach(function(cell) {
+          var t = cell.innerText.trim();
+          if (t) columnHeaders.push(t);
+        });
+      });
+      if (columnHeaders.length === 1) columnHeaders = [];
+    }
+    if (columnHeaders.length === 0) {
+      groups[groupOrder[0]].forEach(function(r) {
+        var v = r.value || r.getAttribute('data-value') || '';
+        if (v && v !== 'on') columnHeaders.push(v);
+      });
+    }
+
+    var instruction = extractMatrixInstruction(scopeEl, tbl);
+    var subs = groupOrder.map(function(name, idx) {
+      var radioGroup = groups[name];
+      var fr = radioGroup[0];
+      var text = '';
+      var row = fr.closest('tr');
+      if (row) {
+        var cells = row.querySelectorAll('td, th');
+        for (var ci = 0; ci < cells.length; ci++) {
+          if (!cells[ci].querySelector('input[type="radio"]')) {
+            var cl = cells[ci].cloneNode(true);
+            cl.querySelectorAll('input, img, span.__qaa_dot').forEach(function(n){ n.remove(); });
+            var t = cl.innerText.trim();
+            if (t.length > 1) { text = t; break; }
+          }
+        }
+      }
+      if (!text) {
+        var parent = fr.closest('li, p');
+        if (parent) {
+          var pc = parent.cloneNode(true);
+          pc.querySelectorAll('input').forEach(function(n){ n.remove(); });
+          text = pc.innerText.trim();
+        }
+      }
+      if (!text) text = 'ข้อ ' + (idx + 1);
+      return {
+        text: text.replace(/[\t ]+/g, ' ').replace(/(\r?\n|\r){2,}/g, ' ').trim(),
+        radios: radioGroup,
+        name: name
+      };
+    });
+
+    // console.info('[matrix-detect] ✓ name-group | subs:', subs.length);
+    return { subs: subs, columnHeaders: columnHeaders, instruction: instruction };
+  }
+
+  // ดึง instruction/หัวข้อของ matrix quiz
+  // หาส่วนที่อยู่เหนือ table / เป็นคำอธิบายคะแนน
+  function extractMatrixInstruction(queEl, tableEl) {
+    // วิธี 1: หา element ที่อยู่ก่อน table ใน queEl
+    if (tableEl) {
+      var clone = queEl.cloneNode(true);
+      var cloneTable = clone.querySelector('table');
+      if (cloneTable) {
+        // เอาเฉพาะส่วนที่อยู่ก่อน table
+        cloneTable.remove();
+        var t = clone.innerText.replace(/[\t ]+/g, ' ').replace(/(\r?\n|\r){3,}/g, '\n').trim();
+        if (t.length > 5) return t;
+      }
+    }
+    // วิธี 2: element ที่มี class เกี่ยวกับคำสั่ง
+    var descEl = queEl.querySelector('[class*="qtext"], [class*="stem"], [class*="prompt"], [class*="instruction"]');
+    if (descEl) return descEl.innerText.trim();
+    return '';
+  }
   function setDot(queEl, state) {
     var cls = '__qaa_dot';
     var dot = queEl.querySelector('.' + cls);

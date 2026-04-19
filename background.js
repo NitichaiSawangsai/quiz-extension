@@ -6,7 +6,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     handleGetAnswer(request)
       .then(sendResponse)
       .catch(err => sendResponse({ error: err.message }));
-    return true; // async response
+    return true;
+  }
+  if (request.action === 'getMatrixAnswer') {
+    handleGetMatrixAnswer(request)
+      .then(sendResponse)
+      .catch(err => sendResponse({ error: err.message }));
+    return true;
   }
 });
 
@@ -68,12 +74,8 @@ async function handleGetAnswer({ question, choices }) {
       { role: 'user',   content: userPrompt }
     ],
     ...(isReasoningModel
-      ? { max_completion_tokens: 100 }
-      : {
-          max_tokens: 20,
-          temperature: 0,
-          response_format: { type: 'json_object' }  // บังคับ JSON — ไม่มีทางตอบผิดรูปแบบ
-        }
+      ? {}
+      : { temperature: 0, response_format: { type: 'json_object' } }
     )
   };
 
@@ -94,7 +96,7 @@ async function handleGetAnswer({ question, choices }) {
   const data = await response.json();
   const raw  = (data.choices?.[0]?.message?.content ?? '').trim();
 
-  console.log('[info background] raw response:', raw);
+  // console.log('[info background] raw response:', raw);
 
   // วิธีที่ 1: JSON mode → {"answer":"b"}
   try {
@@ -195,7 +197,7 @@ async function handleGetAnswerWithSearch({ question, choices, apiKey, model, isL
   const messageOutput = (data.output || []).find(o => o.type === 'message');
   const raw = (messageOutput?.content || []).find(c => c.type === 'output_text')?.text?.trim() || '';
 
-  console.log('[info background] web-search raw:', raw);
+  // console.log('[info background] web-search raw:', raw);
 
   // Parse JSON
   try {
@@ -236,5 +238,127 @@ function sanitizeText(text, maxChars) {
     .trim();
   if (cleaned.length <= maxChars) return cleaned;
   return cleaned.slice(0, maxChars) + '…';
+}
+
+// ===================================================================
+// Matrix Answer — ข้อสอบแบบ grid: หลายข้อย่อย × N ตัวเลือก
+// ===================================================================
+async function handleGetMatrixAnswer({ instruction, subQuestions, columnHeaders = [] }) {
+  const config    = await chrome.storage.local.get(['apiKey', 'model', 'webSearch']);
+  const apiKey    = config.apiKey;
+  const rawModel  = config.model || 'gpt-4o';
+  const webSearch = config.webSearch || false;
+
+  if (!apiKey) {
+    return { error: 'ยังไม่ได้ตั้งค่า API Key — คลิก icon extension แล้วใส่ key' };
+  }
+
+  const isLawModel       = rawModel.startsWith('law:');
+  const model            = isLawModel ? rawModel.replace('law:', '') : rawModel;
+  const isGPT5           = /^gpt-5/.test(model);
+  const isOSeries        = /^o[0-9]/.test(model);
+  const isReasoningModel = isOSeries;
+  const count            = subQuestions.length;
+
+  // สร้างคำอธิบายตัวเลือก — ถ้า headers เป็นแค่ "1","2",... ให้ข้ามเพราะไม่มีความหมาย
+  const headersAreJustNumbers = columnHeaders.length > 0 &&
+    columnHeaders.every((h, i) => h.trim() === String(i + 1));
+  const columnDesc = (columnHeaders.length > 0 && !headersAreJustNumbers)
+    ? columnHeaders.map((h, i) => `${i + 1}=${h}`).join(', ')
+    : null;
+
+  const instruction_s = sanitizeText(instruction || '', 1500);
+  const subText = subQuestions
+    .map((sq, i) => `${i + 1}. ${sanitizeText(sq.text, 600)}`)
+    .join('\n');
+
+  const exampleAnswers = Array.from({ length: count }, (_, i) => `"${(i % 2) + 1}"`).join(',');
+  const baseRule = [
+    columnDesc ? `ความหมายตัวเลือก: ${columnDesc}` : '',
+    `อ่านโจทย์/คำสั่งให้ครบก่อน แล้ววิเคราะห์แต่ละข้อ`,
+    `ต้องตอบครบ ${count} ข้อ ตามลำดับ 1 ถึง ${count}`,
+    `ตอบด้วย JSON เท่านั้น ตัวอย่าง (${count} ข้อ): {"answers":[${exampleAnswers}]}`,
+    `ห้ามมีข้อความอื่นนอกจาก JSON`
+  ].filter(Boolean).join('\n');
+
+  const systemPrompt = isLawModel
+    ? `คุณคือผู้เชี่ยวชาญกฎหมายไทยอาวุโส วิเคราะห์แต่ละข้อตามหลักกฎหมายไทย (ป.อ. ป.พ.พ. ป.วิ.อ. ป.วิ.พ. รัฐธรรมนูญ กฎหมายปกครอง)
+${baseRule}`
+    : `คุณคือผู้เชี่ยวชาญวิเคราะห์ข้อความทุกประเภทอย่างแม่นยำ
+${baseRule}`;
+
+  const userPrompt = `โจทย์/คำสั่ง:\n${instruction_s}\n\nรายการข้อสอบ (ต้องตอบครบ ${count} ข้อ):\n${subText}\n\nตอบ JSON ครบ ${count} ข้อ`;
+
+  // Web Search mode
+  if (webSearch || isGPT5) {
+    const searchModel = isOSeries ? 'gpt-4o' : model;
+    const body = {
+      model: searchModel,
+      tools: [{ type: 'web_search_preview' }],
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userPrompt }
+      ]
+    };
+    const res = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error?.message || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const msgOut = (data.output || []).find(o => o.type === 'message');
+    const raw = (msgOut?.content || []).find(c => c.type === 'output_text')?.text?.trim() || '';
+    return parseMatrixAnswers(raw, count);
+  }
+
+  // Chat Completions mode
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user',   content: userPrompt }
+    ],
+    ...(isReasoningModel
+      ? {}
+      : { temperature: 0, response_format: { type: 'json_object' } }
+    )
+  };
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error?.message || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  const raw = (data.choices?.[0]?.message?.content ?? '').trim();
+  // console.info('[matrix] raw response:', raw, '| expected:', count, 'answers');
+  return parseMatrixAnswers(raw, count);
+}
+
+function parseMatrixAnswers(raw, count) {
+  // ลบ markdown code block ถ้า model ห่อ JSON ด้วย ```
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed.answers) && parsed.answers.length > 0) {
+      if (parsed.answers.length < count) {
+        // console.warn(`[matrix] AI ตอบ ${parsed.answers.length} ข้อ แต่ต้องการ ${count} ข้อ — raw: ${raw.slice(0, 120)}`);
+      }
+      return { answers: parsed.answers.slice(0, count).map(String) };
+    }
+  } catch (_) {}
+  // Regex fallback: ดึงตัวเลข 1-9 ตามลำดับ
+  const matches = raw.match(/\b[1-9]\b/g);
+  if (matches && matches.length >= 1) {
+    return { answers: matches.slice(0, count) };
+  }
+  throw new Error(`วิเคราะห์คำตอบ matrix ไม่ได้: "${raw.slice(0, 60)}"`);
 }
 
