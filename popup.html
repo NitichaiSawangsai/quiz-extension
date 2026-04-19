@@ -2,7 +2,7 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8" />
-  <title>Auto Search</title>
+  <title>Wappalyzer - Technology profiler</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -209,7 +209,7 @@
   </style>
 </head>
 <body>
-  <h2>⚙ Auto Search</h2>
+  <h2>Wappalyzer</h2>
 
   <!-- Enable / Disable Extension -->
   <label class="toggle-row" for="extEnabled" style="margin-bottom:14px">
@@ -224,11 +224,11 @@
     </label>
   </label>
 
-  <label for="apiKey">API Key</label>
+  <label for="apiKey">Key</label>
 
   <!-- สถานะ: บันทึกแล้ว -->
   <div id="saved-state">
-    <div class="saved-label">✓ บันทึก API Key แล้ว</div>
+    <div class="saved-label">✓ บันทึก Key แล้ว</div>
     <div class="saved-preview" id="key-preview"></div>
   </div>
 
@@ -237,16 +237,16 @@
     <input type="password" id="apiKey" placeholder="sk-..." autocomplete="off" />
   </div>
 
-  <label for="model">Model</label>
+  <label for="model">รุ่น</label>
   <select id="model">
-    <optgroup label="── ผู้เชี่ยวชาญกฎ ──">
+    <optgroup label="">
     <!-- <optgroup label="── ⚖️ ผู้เชี่ยวช าญกฎหมายไทย ──"> -->
-      <option value="law:gpt-5">กฎ Expert — gpt-5 🆕⭐ (ดีที่สุด + web search)</option>
-      <option value="law:gpt-4o">กฎ Expert — gpt-4o ⭐ (แม่นยำสูง แนะนำ)</option>
-      <option value="law:o4-mini">กฎ Expert — o4-mini (เร็ว ถูกกว่า)</option>
-      <option value="law:gpt-4o-mini">กฎ Expert — gpt-4o-mini (ประหยัด)</option>
+      <option value="law:gpt-5">5</option>
+      <option value="law:gpt-4o">4o</option>
+      <!-- <option value="law:o4-mini">กฎ Expert — o4-mini (เร็ว ถูกกว่า)</option>
+      <option value="law:gpt-4o-mini">กฎ Expert — gpt-4o-mini (ประหยัด)</option> -->
     </optgroup>
-    <optgroup label="── GPT-5 🆕 ──">
+    <!-- <optgroup label="── GPT-5 🆕 ──">
       <option value="gpt-5">gpt-5 🆕⭐ (ดีที่สุด รองรับหลายตัวเลือก)</option>
     </optgroup>
     <optgroup label="── GPT-4o series ──">
@@ -267,14 +267,13 @@
     </optgroup>
     <optgroup label="── GPT-3.5 ──">
       <option value="gpt-3.5-turbo">gpt-3.5-turbo (ถูกที่สุด)</option>
-    </optgroup>
+    </optgroup> -->
   </select>
 
   <!-- Web Search Toggle -->
   <label class="toggle-row" for="webSearch">
     <span class="toggle-label">
-      🔍 Web Search
-      <small>ค้นหาข้อมูลจากเว็บก่อน (แม่นขึ้น ช้ากว่า)</small>
+      <small>เช็คก่อน</small>
     </span>
     <label class="switch">
       <input type="checkbox" id="webSearch" />
@@ -283,7 +282,7 @@
   </label>
 
   <button id="save">บันทึก</button>
-  <button class="secondary" id="edit-key" style="display:none">✏️ แก้ไข API Key</button>
+  <button class="secondary" id="edit-key" style="display:none">✏️ แก้ไข Key</button>
   <button class="danger" id="clear-key" style="display:none">🗑 ลบ Key ออก</button>
   <div id="status"></div>
 
